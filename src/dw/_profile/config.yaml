@@ -1,0 +1,15 @@
+cluster:
+  sbatch
+    --cluster={resources.cluster}
+    --job-name={rule}
+    --output=../../_logs/dw/%j-{rule}-{wildcards}.out
+    --time={resources.time}
+    --export=ALL,CLUSTER={resources.cluster}
+default-resources:
+  - cluster=hpd
+  - time="4-00:00:00"
+latency-wait: 60
+jobs: 32
+keep-going: True
+rerun-incomplete: True
+jobscript: ../jobscript.sh

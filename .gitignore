@@ -1,0 +1,15 @@
+# vitual environment
+.venv
+
+# python cache
+__pycache__
+
+# snakemake
+.snakemake
+
+# slurm logs
+_logs
+
+# output
+_output
+_plots

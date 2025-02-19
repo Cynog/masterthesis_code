@@ -1,0 +1,6 @@
+[
+lattice [4,4,4,8];double;full [1,1,1,1] ot_matrix_su_n_fundamental_group(3);none 0
+lattice [4,4,4,8];double;full [1,1,1,1] ot_matrix_su_n_fundamental_group(3);none 73783
+lattice [4,4,4,8];double;full [1,1,1,1] ot_matrix_su_n_fundamental_group(3);none 147566
+lattice [4,4,4,8];double;full [1,1,1,1] ot_matrix_su_n_fundamental_group(3);none 221349
+]

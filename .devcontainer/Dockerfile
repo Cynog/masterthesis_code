@@ -1,6 +1,6 @@
 FROM gptdev/shell
 
-# gpt quiet import
+# gpt quiet import to avoid unnecessary output
 ENV GPT_QUIET=YES
 
 # switch back to root user

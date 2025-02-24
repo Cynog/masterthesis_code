@@ -1,0 +1,14 @@
+{
+	"name": "masterthesis_code",
+	"image": "ghcr.io/cynog/masterthesis_code_devcontainer:latest",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"donjayamanne.python-extension-pack",
+				"ms-python.autopep8",
+				"ms-azuretools.vscode-docker",
+				"github.vscode-github-actions"
+			]
+		}
+	}
+}

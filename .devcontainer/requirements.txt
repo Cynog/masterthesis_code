@@ -1,0 +1,10 @@
+meson
+ninja
+ipykernel
+numpy
+scipy
+matplotlib
+autopep8
+tqdm
+snakemake
+pulp==2.7.0

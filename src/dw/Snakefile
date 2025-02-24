@@ -11,10 +11,6 @@ PLOTS = "../../_plots/dw/"
 PLOTS_MAIN = "../../_plots/"
 
 
-# create folder for slurm logs
-os.makedirs(LOGS, exist_ok=True)
-
-
 # specify if lib change should trigger rerun of rules
 CHECK_LIB_CHANGE = False
 LIB = ["../../lib"] if CHECK_LIB_CHANGE else []

@@ -1,0 +1,12 @@
+{
+    "gconfig_dir": "../../gconfigs",
+    "mobius_p": {
+        "M5": 1.5,
+        "b": 1.5,
+        "c": 0.5,
+        "boundary_phases": [1.0, 1.0, 1.0, 1.0]
+    },
+    "seed": "5400",
+    "seed_solve": "4321",
+    "dimension": "8c16"
+}

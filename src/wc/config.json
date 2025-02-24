@@ -1,0 +1,13 @@
+{
+    "gconfig_dir": "../../gconfigs",
+    "fermion_p": {
+        "csw_r": 1.0,
+        "csw_t": 1.0,
+        "boundary_phases": [1, 1, 1, 1],
+        "isAnisotropic": false,
+        "xi_0": 1.0,
+        "nu": 1.0
+    },
+    "seed": "5400",
+    "seed_solve": "1234"
+}

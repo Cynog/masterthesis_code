@@ -1,0 +1,804 @@
+# import required packages
+import os
+
+
+# define output folders
+LOGS = "../../_logs/wc/"
+OUTPUT = "../../_output/wc/"
+OUTPUT_MAIN = "../../_output/"
+PLOTS = "../../_plots/wc/"
+PLOTS_MAIN = "../../_plots/"
+
+
+# create folder for slurm logs
+os.makedirs(LOGS, exist_ok=True)
+
+
+# specify if lib change should trigger rerun of rules
+CHECK_LIB_CHANGE = False
+LIB = ["../../lib"] if CHECK_LIB_CHANGE else []
+
+
+# constrain gconfig wildcard to end in .cfg
+wildcard_constraints:
+    gconfig = r".+\.cfg",
+    model1inv = r".*",
+    costf = r".*",
+    beta = r"\d+\.\d{2}", # .2f float
+    dim = r"\d+c\d+", # 4c8, 6c12, 8c16, ...
+    n_layers = r"\d+", # 1, 2, 3, ...
+
+
+# config file
+configfile: "config.json"
+dimension = config['dimension']
+config.pop('dimension')
+
+
+# gconfig mass list for shorter syntax
+if dimension == "4c8":
+    gconfig_mass_list_base = []
+    gconfig_mass_list_base += [("4c8_0600.cfg", f"{m:.3f}") for m in [-0.590 + i * 0.010 for i in range(0, 5 + 1)]]
+    #gconfig_mass_list_base += [("4c8_08900.cfg", f"{m:.3f}") for m in [-0.600 + i * 0.010 for i in range(0, 5 + 1)]]
+
+    gconfig_mass_list_critical = [("4c8_0600.cfg", "-0.590")]#, ("4c8_08900.cfg", "-0.600")]
+
+    gconfig_mass_list = gconfig_mass_list_base.copy()
+    gconfig_mass_list += [("4c8_0600.cfg", f"{m:.3f}") for m in [-0.590 + i * 0.010 for i in range(-5, 0)]]
+    #gconfig_mass_list += [("4c8_08900.cfg", f"{m:.3f}") for m in [-0.600 + i * 0.010 for i in range(-5, 0)]]
+
+    n_calciter = 5
+
+    noprec_evals = True
+
+    ptc_n_layers = ["1", "2", "4", "8"]
+    ptc_costf = ["", "inv"]
+    ptc_evals = True
+
+    smoother_evals = True
+
+    mg_evals = True
+
+    lptc_evals = True
+
+    model1_evals = True
+elif dimension == "8c16":
+    gconfig_mass_list_base = []
+    gconfig_mass_list_base += [("8c16_1200.cfg", f"{m:.3f}") for m in [-0.580 + i * 0.010 for i in range(0, 5 + 1)]]
+    gconfig_mass_list_base += [("8c16_2200.cfg", f"{m:.3f}") for m in [-0.550 + i * 0.010 for i in range(0, 5 + 1)] + [-0.555]]
+
+    gconfig_mass_list_critical = [("8c16_1200.cfg", "-0.580"), ("8c16_2200.cfg", "-0.555")] # ("8c16_1500.cfg", "-0.660")
+
+    gconfig_mass_list = gconfig_mass_list_base.copy()
+    gconfig_mass_list += [("8c16_1200.cfg", f"{m:.3f}") for m in [-0.580 + i * 0.010 for i in range(-5, 0)]]
+    gconfig_mass_list += [("8c16_2200.cfg", f"{m:.3f}") for m in [-0.550 + i * 0.010 for i in range(-5, 0)]]
+
+    n_calciter = 3
+
+    ptc_n_layers = ["1", "2", "4", "8"]#, "16"]
+    ptc_costf = ["", "inv"]
+
+
+
+
+
+
+
+
+
+
+################################ general rules ################################
+rule plotcost:
+    localrule: True
+    input:
+        cost = OUTPUT + "{gconfig}/{model}/{mass}/cost.txt",
+    output:
+        plot = PLOTS + "{gconfig}/{model}/cost/{mass}.png",
+    script:
+        "general/plot_cost.py"
+
+
+
+
+
+
+
+
+
+
+################################ without preconditioning ################################
+rule calciter:
+    params:
+        **config,
+        n_calciter = n_calciter,
+        fgmres_kwargs = {"eps": 1e-8, "maxiter": 100000, "restartlen": 30},
+    input:
+        LIB,
+    output:
+        iterations = OUTPUT + "{gconfig}/iter/{mass}.txt",
+        history_dir = directory(OUTPUT + "{gconfig}/history/{mass}"),
+        histories = [OUTPUT + f"{{gconfig}}/history/{{mass}}/{i}.txt" for i in range(n_calciter)],
+    script:
+        "noprec/calculate_iter.py"
+
+
+rule calciter_full:
+    input:
+        [OUTPUT + f"{gconfig}/iter/{mass}.txt" for gconfig, mass in gconfig_mass_list_base],
+
+
+rule calcevals:
+    resources:
+        cluster="hpd",
+    params:
+        **config,
+    input:
+        LIB,
+    output:
+        evals = OUTPUT + "{gconfig}/evals/{mass}.txt",
+    script:
+        "noprec/calculate_evals.py"
+
+
+rule calcevals_full:
+    input:
+        [OUTPUT + f"{gconfig}/evals/{mass}.txt" for gconfig, mass in gconfig_mass_list_critical if dimension == "4c8" and noprec_evals],
+
+
+rule plotevals:
+    localrule: True
+    input:
+        LIB,
+        evals = OUTPUT + "{gconfig}/evals/{mass}.txt",
+    output:
+        plot = PLOTS + "{gconfig}/evals/noprec/{mass}.png",
+    script:
+        "noprec/plot_evals.py"
+
+
+rule plotevals_full:
+    input:
+        [PLOTS + f"{gconfig}/evals/noprec/{mass}.png" for gconfig, mass in gconfig_mass_list_critical if dimension == "4c8" and noprec_evals],
+
+
+rule noprec_full:
+    input:
+        rules.calciter_full.input,
+        rules.calcevals_full.input,
+        rules.plotevals_full.input,
+
+
+
+
+
+
+
+
+
+
+################################ ptc1hxl ################################
+def get_params_ptc1hxl(n_layers, costf=""):
+    params = {}
+    params['Wscale'] = 0.0005
+    params['n_layers'] = n_layers
+    params['ntrainvectors'] = 1000
+    params['adam_kwargs'] = {'maxiter': 1, 'alpha': 1e-3, 'beta1': 0.9, 'beta2': 0.98, 'eps_regulator': 1e-6}
+    params['fgmres_kwargs'] = {"eps": 1e-8, "maxiter": 50000, "restartlen": 30}
+    params['alpha_halfevery'] = None
+
+    # parameters for expensive cost function
+    if costf == "inv":
+        params['solver_kwargs'] = {'eps': 1e-8, 'maxiter': 1000}
+
+    # parameters for deep models
+    if int(n_layers) >= 4:
+        params['fgmres_kwargs']['maxiter'] = 10000
+    
+    params['saveweightsstart'] = params['ntrainvectors'] // 10
+    params['saveweightsevery'] = params['ntrainvectors'] // 10
+    
+    return params
+
+ptc1hxl_train_paramnames = ["n_layers", "Wscale", "adam_kwargs", "alpha_halfevery", "ntrainvectors", "saveweightsstart", "saveweightsevery"]
+for n_layers in ["1", "2", "4", "6", "8", "16", "32"]:
+    rule:
+        name: f"ptc1h{n_layers}l_train",
+        params:
+            **config,
+            **{key: value for key, value in get_params_ptc1hxl(n_layers).items() if key in ptc1hxl_train_paramnames},
+        input:
+            LIB,
+        output:
+            model_weights_dir = directory(OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l/{{mass}}/weights"),
+            model_weights_dir_list = [directory(OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l/{{mass}}/weights/{ntrain}") for ntrain in range(get_params_ptc1hxl(n_layers)['saveweightsstart'], get_params_ptc1hxl(n_layers)['ntrainvectors'] + 1, get_params_ptc1hxl(n_layers)['saveweightsevery'])],
+            model_cost = OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l/{{mass}}/cost.txt",
+        script:
+            f"ptc1hxl/train.py"
+
+
+ptc1hxlinv_train_paramnames = ptc1hxl_train_paramnames + ["solver_kwargs"]
+for n_layers in ["1", "2", "4", "6", "8", "16", "32"]:
+    rule:
+        name: f"ptc1h{n_layers}linv_train",
+        params:
+            **config,
+            **{key: value for key, value in get_params_ptc1hxl(n_layers, "inv").items() if key in ptc1hxlinv_train_paramnames},
+        input:
+            LIB,
+        output:
+            model_weights_dir = directory(OUTPUT + f"{{gconfig}}/ptc1h{n_layers}linv/{{mass}}/weights"),
+            model_weights_dir_list = [directory(OUTPUT + f"{{gconfig}}/ptc1h{n_layers}linv/{{mass}}/weights/{ntrain}") for ntrain in range(get_params_ptc1hxl(n_layers, "inv")['saveweightsstart'], get_params_ptc1hxl(n_layers, "inv")['ntrainvectors'] + 1, get_params_ptc1hxl(n_layers, "inv")['saveweightsevery'])],
+            model_cost = OUTPUT + f"{{gconfig}}/ptc1h{n_layers}linv/{{mass}}/cost.txt",
+        script:
+            f"ptc1hxl/traininv.py"
+
+
+rule ptc1h1l_train_full:
+    input:
+        [OUTPUT + f"{gconfig}/ptc1h1l/{mass}/cost.txt" for gconfig, mass in gconfig_mass_list],
+
+
+rule ptc1h1l_plotcost_full:
+    input:
+        [PLOTS + f"{gconfig}/ptc1h1l/cost/{mass}.png" for gconfig, mass in gconfig_mass_list],
+
+
+rule ptc1h1linv_plotcost_full:
+    input:
+        [PLOTS + f"{gconfig}/ptc1h1linv/cost/{mass}.png" for gconfig, mass in gconfig_mass_list],
+
+
+ptc1hxl_calciter_paramnames = ["n_layers", "fgmres_kwargs"]
+for costf in ["", "inv"]:
+    for n_layers in ["1", "2", "4", "6", "8", "16", "32"]:
+        rule:
+            name: f"ptc1h{n_layers}l{costf}_calciter",
+            params:
+                **config,
+                n_calciter = n_calciter,
+                **{key: value for key, value in get_params_ptc1hxl(n_layers, costf).items() if key in ptc1hxl_calciter_paramnames},
+            input:
+                LIB,
+                model_weights = OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l{costf}/{{mass}}/weights/{{ntrain}}",
+            output:
+                iterations = OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l{costf}/{{mass}}/iter/{{ntrain}}.txt",
+                history_dir = directory(OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l{costf}/{{mass}}/history/{{ntrain}}"),
+                histories = [OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l{costf}/{{mass}}/history/{{ntrain}}/{i}.txt" for i in range(n_calciter)],
+            script:
+                "ptc1hxl/calculate_iter.py"
+
+
+rule ptc1h1l_calciter_full:
+    input:
+        [OUTPUT + f"{gconfig}/ptc1h1l/{mass}/iter/{ntrain}.txt" for gconfig, mass in gconfig_mass_list for ntrain in [get_params_ptc1hxl(1)['ntrainvectors']]],
+
+
+for costf in ["", "inv"]:
+    for n_layers in ["1", "2", "4", "6", "8", "16", "32"]:
+        rule:
+            name: f"ptc1h{n_layers}l{costf}_plotiterntrain",
+            localrule: True
+            params:
+                **get_params_ptc1hxl(n_layers, costf),
+                costf = costf,
+            input:
+                LIB,
+                iter = OUTPUT + "{gconfig}/iter/{mass}.txt",
+                iter_ptc1hxl = [OUTPUT + f"{{gconfig}}/ptc1h{n_layers}l{costf}/{{mass}}/iter/{ntrain}.txt" for ntrain in range(get_params_ptc1hxl(n_layers, costf)['saveweightsstart'], get_params_ptc1hxl(n_layers, costf)['ntrainvectors'] + 1, get_params_ptc1hxl(n_layers, costf)['saveweightsevery'])],
+            output:
+                plot = PLOTS + f"{{gconfig}}/ptc1h{n_layers}l{costf}/iterntrain/{{mass}}.png",
+            script:
+                "ptc1hxl/plot_iterntrain.py"
+
+
+rule ptc1h1l_plotiterntrain_full:
+    input:
+        [PLOTS + f"{gconfig}/ptc1h1l/iterntrain/{mass}.png" for gconfig, mass in gconfig_mass_list_critical],
+
+
+rule ptc1hxl_calcevals:
+    resources:
+        cluster="hpd",
+    params:
+        **config,
+    input:
+        LIB,
+        model_weights = OUTPUT + "{gconfig}/ptc1h{n_layers}l{costf}/{mass}/weights/{ntrain}",
+    output:
+        evals_ptc = OUTPUT + "{gconfig}/ptc1h{n_layers}l{costf}/{mass}/evals/{ntrain}.txt",
+    script:
+        "ptc1hxl/calculate_evals.py"
+
+
+rule ptc1h1l_calcevals_full:
+    input:
+        [OUTPUT + f"{gconfig}/ptc1h1l/{mass}/evals/{ntrain}.txt" for gconfig, mass in gconfig_mass_list_critical for ntrain in [get_params_ptc1hxl(1)['ntrainvectors']] if dimension == "4c8" and ptc_evals],
+
+
+rule ptc1hxl_plotevals:
+    localrule: True
+    input:
+        LIB,
+        evals = OUTPUT + "{gconfig}/evals/{mass}.txt",
+        evals_ptc = OUTPUT + "{gconfig}/ptc1h{n_layers}l{costf}/{mass}/evals/{ntrain}.txt",
+    output:
+        plot = PLOTS + "{gconfig}/evals/ptc1h{n_layers}l{costf}/{mass}_{ntrain}.png",
+    script:
+        "ptc1hxl/plot_evals.py"
+
+
+rule ptc1h1l_plotevals_full:
+    input:
+        [PLOTS + f"{gconfig}/evals/ptc1h1l/{mass}_{ntrain}.png" for gconfig, mass in gconfig_mass_list_critical for ntrain in [get_params_ptc1hxl(1)['ntrainvectors']] if dimension == "4c8" and ptc_evals],
+
+
+rule ptc1h1l_full:
+    input:
+        rules.ptc1h1l_plotcost_full.input,
+        rules.ptc1h1l_calciter_full.input,
+        rules.ptc1h1l_plotiterntrain_full.input,
+        rules.ptc1h1l_plotevals_full.input,
+
+
+rule ptc1hxl_full:
+    input:
+        [PLOTS + f"{gconfig}/ptc1h{n_layers}l{costf}/cost/{mass}.png"
+        for gconfig, mass in gconfig_mass_list
+        for costf in ptc_costf
+        for n_layers in ptc_n_layers],
+        
+        [OUTPUT + f"{gconfig}/ptc1h{n_layers}l{costf}/{mass}/iter/{ntrain}.txt"
+        for gconfig, mass in gconfig_mass_list
+        for costf in ptc_costf
+        for n_layers in ptc_n_layers
+        for ntrain in [get_params_ptc1hxl(n_layers, costf)['ntrainvectors']]],
+
+        [PLOTS + f"{gconfig}/ptc1h{n_layers}l{costf}/iterntrain/{mass}.png"
+        for gconfig, mass in gconfig_mass_list_critical
+        for costf in ptc_costf
+        for n_layers in ptc_n_layers],
+
+        [PLOTS + f"{gconfig}/evals/ptc1h{n_layers}l{costf}/{mass}_{ntrain}.png"
+        for gconfig, mass in gconfig_mass_list_critical
+        for costf in ptc_costf
+        for n_layers in ptc_n_layers
+        for ntrain in [get_params_ptc1hxl(n_layers, costf)['ntrainvectors']]
+        if dimension == "4c8" and ptc_evals],
+
+
+
+
+
+
+
+
+
+
+################################ smoother ################################
+smoother_train_ntrainvectors = 1000
+smoother_train_saveweightsstart = 100
+smoother_train_saveweightsevery = 100
+rule smoother_train:
+    params:
+        **config,
+        Wscale = 0.0005,
+        adam_kwargs = {'maxiter': 1, 'alpha': 5e-4, 'beta1': 0.9, 'beta2': 0.98, 'eps_regulator': 1e-6},
+        ntrainvectors = smoother_train_ntrainvectors,
+        saveweightsstart = smoother_train_saveweightsstart,
+        saveweightsevery = smoother_train_saveweightsevery,
+    input:
+        LIB,
+        weights_ptc1h1l = OUTPUT + "{gconfig}/ptc1h1l/{mass}/weights/" + str(get_params_ptc1hxl(1)['ntrainvectors']),
+    output:
+        model_weights_dir = directory(OUTPUT + "{gconfig}/smoother/{mass}/weights"),
+        model_weights_dir_list = directory(expand(OUTPUT + "{{gconfig}}/smoother/{{mass}}/weights/{ntrain}", ntrain=range(smoother_train_saveweightsstart, smoother_train_ntrainvectors + 1, smoother_train_saveweightsevery))),
+        model_cost = OUTPUT + "{gconfig}/smoother/{mass}/cost.txt",
+    script:
+        "smoother/train.py"
+
+
+rule smoother_train_full:
+    input:
+        [OUTPUT + f"{gconfig}/smoother/{mass}/cost.txt" for gconfig, mass in gconfig_mass_list],
+
+
+rule smoother_plotcost_full:
+    input:
+        [PLOTS + f"{gconfig}/smoother/cost/{mass}.png" for gconfig, mass in gconfig_mass_list],
+
+
+rule smoother_calciter:
+    params:
+        **config,
+        n_calciter = n_calciter,
+        fgmres_kwargs = {"eps": 1e-8, "maxiter": 12000, "restartlen": 30},
+    input:
+        LIB,
+        model_weights = OUTPUT + "{gconfig}/smoother/{mass}/weights/{ntrain}",
+    output:
+        iterations = OUTPUT + "{gconfig}/smoother/{mass}/iter/{ntrain}.txt",
+        history_dir = directory(OUTPUT + "{gconfig}/smoother/{mass}/history/{ntrain}"),
+        histories = [OUTPUT + f"{{gconfig}}/smoother/{{mass}}/history/{{ntrain}}/{i}.txt" for i in range(n_calciter)],
+    script:
+        "smoother/calculate_iter.py"
+
+
+rule smoother_calciter_full:
+    input:
+        [OUTPUT + f"{gconfig}/smoother/{mass}/iter/{ntrain}.txt" for gconfig, mass in gconfig_mass_list for ntrain in [smoother_train_ntrainvectors]],
+
+
+rule smoother_calcevals:
+    resources:
+        cluster="hpd",
+    params:
+        **config,
+    input:
+        LIB,
+        model_weights = OUTPUT + "{gconfig}/smoother/{mass}/weights/{ntrain}",
+    output:
+        evals_smoother = OUTPUT + "{gconfig}/smoother/{mass}/evals/{ntrain}.txt",
+    script:
+        "smoother/calculate_evals.py"
+
+
+rule smoother_calcevals_full:
+    input:
+        [OUTPUT + f"{gconfig}/smoother/{mass}/evals/{ntrain}.txt" for gconfig, mass in gconfig_mass_list_critical for ntrain in [smoother_train_ntrainvectors] if dimension == "4c8" and smoother_evals],
+
+
+rule smoother_plotevals:
+    localrule: True
+    input:
+        LIB,
+        evals = OUTPUT + "{gconfig}/evals/{mass}.txt",
+        evals_smoother = OUTPUT + "{gconfig}/smoother/{mass}/evals/{ntrain}.txt",
+    output:
+        plot = PLOTS + "{gconfig}/evals/smoother/{mass}_{ntrain}.png",
+    script:
+        "smoother/plot_evals.py"
+
+
+rule smoother_plotevals_full:
+    input:
+        [PLOTS + f"{gconfig}/evals/smoother/{mass}_{ntrain}.png" for gconfig, mass in gconfig_mass_list_critical for ntrain in [smoother_train_ntrainvectors] if dimension == "4c8" and smoother_evals],
+
+
+rule smoother_full:
+    input:
+        rules.smoother_plotcost_full.input,
+        rules.smoother_calciter_full.input,
+        rules.smoother_plotevals_full.input,
+
+
+
+
+
+
+
+
+
+
+################################ multigrid ################################
+mg_setup_nbasisvectors = 12
+mg_setup_split_chiral = True
+mg_setup_block_size = [[2, 2, 2, 2]] if dimension == "4c8" else [[4, 4, 4, 4]]
+rule mg_setup:
+    params:
+        **config,
+        nbasisvectors = mg_setup_nbasisvectors,
+        block_size = mg_setup_block_size,
+        split_chiral = mg_setup_split_chiral,
+    input:
+        LIB,
+    output:
+        multigrid_setup = directory(OUTPUT + "{gconfig}/multigrid/{mass}/setup"),
+    script:
+        "multigrid/setup.py"
+
+
+rule mg_setup_full:
+    input:
+        [OUTPUT + f"{gconfig}/multigrid/{mass}/setup" for gconfig, mass in gconfig_mass_list],
+
+
+rule mg_calciter: #! crashes on qp4
+    resources:
+        cluster="hpd",
+    params:
+        **config,
+        n_calciter = n_calciter,
+        fgmres_kwargs = {"eps": 1e-8, "maxiter": 1000, "restartlen": 30},
+    input:
+        LIB,
+        multigrid_setup = OUTPUT + "{gconfig}/multigrid/{mass}/setup",
+    output:
+        iterations = OUTPUT + "{gconfig}/multigrid/{mass}/iter.txt",
+        history_dir = directory(OUTPUT + "{gconfig}/multigrid/{mass}/history"),
+        histories = [OUTPUT + f"{{gconfig}}/multigrid/{{mass}}/history/{i}.txt" for i in range(n_calciter)],
+    script:
+        "multigrid/calculate_iter.py"
+
+
+rule mg_calciter_full:
+    input:
+        [OUTPUT + f"{gconfig}/multigrid/{mass}/iter.txt" for gconfig, mass in gconfig_mass_list],
+
+
+rule mg_calcevals_coarse:
+    resources:
+        cluster="hpd",
+    params:
+        **config,
+        nbasisvectors = mg_setup_nbasisvectors,
+        split_chiral = mg_setup_split_chiral,
+    input:
+        LIB,
+        multigrid_setup = OUTPUT + "{gconfig}/multigrid/{mass}/setup",
+    output:
+        evals_coarse = OUTPUT + "{gconfig}/multigrid/{mass}/evals_coarse.txt",
+    script:
+        "multigrid/calculate_evals_coarse.py"
+
+
+rule mg_calcevals_coarse_full:
+    input:
+        [OUTPUT + f"{gconfig}/multigrid/{mass}/evals_coarse.txt" for gconfig, mass in gconfig_mass_list if dimension == "4c8" and mg_evals],
+
+
+rule mg_plotevals_coarse:
+    localrule: True
+    input:
+        LIB,
+        evals_coarse = OUTPUT + "{gconfig}/multigrid/{mass}/evals_coarse.txt",
+    output:
+        plot = PLOTS + "{gconfig}/evals/coarse/{mass}.png",
+    script:
+        "multigrid/plot_evals_coarse.py"
+
+
+rule mg_plotevals_coarse_full:
+    input:
+        [PLOTS + f"{gconfig}/evals/coarse/{mass}.png" for gconfig, mass in gconfig_mass_list if dimension == "4c8" and mg_evals],
+
+
+rule mg_calcevals:
+    resources:
+        cluster="hpd",
+    params:
+        **config,
+    input:
+        LIB,
+        multigrid_setup = OUTPUT + "{gconfig}/multigrid/{mass}/setup",
+    output:
+        evals_mg = OUTPUT + "{gconfig}/multigrid/{mass}/evals.txt",
+    script:
+        "multigrid/calculate_evals.py"
+
+
+rule mg_calcevals_full:
+    input:
+        [OUTPUT + f"{gconfig}/multigrid/{mass}/evals.txt" for gconfig, mass in gconfig_mass_list if dimension == "4c8" and mg_evals],
+
+
+rule mg_plotevals:
+    localrule: True
+    input:
+        LIB,
+        evals = OUTPUT + "{gconfig}/evals/{mass}.txt",
+        evals_mg = OUTPUT + "{gconfig}/multigrid/{mass}/evals.txt",
+    output:
+        plot = PLOTS + "{gconfig}/evals/multigrid/{mass}.png",
+    script:
+        "multigrid/plot_evals.py"
+
+
+rule mg_plotevals_full:
+    input:
+        [PLOTS + f"{gconfig}/evals/multigrid/{mass}.png" for gconfig, mass in gconfig_mass_list if dimension == "4c8" and mg_evals],
+
+
+rule mg_full:
+    input:
+        rules.mg_setup_full.input,
+        rules.mg_calciter_full.input,
+        rules.mg_plotevals_coarse_full.input,
+        rules.mg_plotevals_full.input,
+
+
+
+
+
+
+
+
+
+
+################################ coarse lptc ################################
+lptc_train_ntrainvectors = 5000
+lptc_train_saveweightsstart = 500
+lptc_train_saveweightsevery = 500
+rule clptc_train:
+    params:
+        **config,
+        Wscale = 0.005,
+        adam_kwargs = {'maxiter': 1, 'alpha': 1e-3, 'beta1': 0.9, 'beta2': 0.98, 'eps_regulator': 1e-6},
+        ntrainvectors = lptc_train_ntrainvectors,
+        saveweightsstart = lptc_train_saveweightsstart,
+        saveweightsevery = lptc_train_saveweightsevery,
+    input:
+        LIB,
+        multigrid_setup = OUTPUT + "{gconfig}/multigrid/{mass}/setup",
+    output:
+        model_weights_dir = directory(OUTPUT + "{gconfig}/coarse_lptc/{mass}/weights"),
+        model_weights_dir_list = directory(expand(OUTPUT + "{{gconfig}}/coarse_lptc/{{mass}}/weights/{ntrain}", ntrain=range(lptc_train_saveweightsstart, lptc_train_ntrainvectors + 1, lptc_train_saveweightsevery))),
+        model_cost = OUTPUT + "{gconfig}/coarse_lptc/{mass}/cost.txt",
+    script:
+        "coarse_lptc/train.py"
+
+
+rule clptc_train_full:
+    input:
+        [OUTPUT + f"{gconfig}/coarse_lptc/{mass}/cost.txt" for gconfig, mass in gconfig_mass_list],
+
+
+rule clptc_plotcost_full:
+    input:
+        [PLOTS + f"{gconfig}/coarse_lptc/cost/{mass}.png" for gconfig, mass in gconfig_mass_list],
+
+
+rule clptc_full:
+    input:
+        rules.clptc_plotcost_full.input,
+
+
+
+
+
+
+
+
+
+
+################################ model1 ################################
+model1_train_ntrainvectors = 300
+model1_train_saveweightsstart = 30
+model1_train_saveweightsevery = 30
+rule model1_train:
+    params:
+        **config,
+        adam_kwargs = {'maxiter': 2, 'alpha': 5e-4, 'beta1': 0.9, 'beta2': 0.98, 'eps_regulator': 1e-6},
+        solver_kwargs = {"eps": 1e-8, "maxiter": 1000},
+        ntrainvectors = model1_train_ntrainvectors,
+        saveweightsstart = model1_train_saveweightsstart,
+        saveweightsevery = model1_train_saveweightsevery,
+    input:
+        LIB,
+        multigrid_setup = OUTPUT + "{gconfig}/multigrid/{mass}/setup",
+        smoother_weights = OUTPUT + "{gconfig}/smoother/{mass}/weights/" + str(smoother_train_ntrainvectors),
+        coarse_lptc_weights = OUTPUT + "{gconfig}/coarse_lptc/{mass}/weights/" + str(lptc_train_ntrainvectors),
+    output:
+        model_weights_dir = directory(OUTPUT + "{gconfig}/model1/{mass}/weights"),
+        model_weights_dir_list = [directory(OUTPUT + f"{{gconfig}}/model1/{{mass}}/weights/{ntrain}") for ntrain in [0] + list(range(model1_train_saveweightsstart, model1_train_ntrainvectors + 1, model1_train_saveweightsevery))],
+        model_cost = OUTPUT + "{gconfig}/model1/{mass}/cost.txt",
+    script:
+        "model1/train.py"
+
+
+rule model1_train_full:
+    input:
+        [OUTPUT + f"{gconfig}/model1/{mass}/cost.txt" for gconfig, mass in gconfig_mass_list],
+        
+
+rule model1_plotcost_full:
+    input:
+        [PLOTS + f"{gconfig}/model1/cost/{mass}.png" for gconfig, mass in gconfig_mass_list],
+
+
+rule model1_calciter:
+    params:
+        **config,
+        n_calciter = n_calciter,
+        fgmres_kwargs = {"eps": 1e-8, "maxiter": 12000, "restartlen": 30},
+    input:
+        LIB,
+        multigrid_setup = OUTPUT + "{gconfig}/multigrid/{mass}/setup",
+        model_weights = OUTPUT + "{gconfig}/model1{model1inv}/{mass}/weights/{ntrain}",
+    output:
+        iterations = OUTPUT + "{gconfig}/model1{model1inv}/{mass}/iter/{ntrain}.txt",
+        history_dir = directory(OUTPUT + "{gconfig}/model1{model1inv}/{mass}/history/{ntrain}"),
+        histories = [OUTPUT + f"{{gconfig}}/model1{{model1inv}}/{{mass}}/history/{{ntrain}}/{i}.txt" for i in range(n_calciter)],
+    script:
+        "model1/calculate_iter.py"
+
+
+rule model1_calciter_full:
+    input:
+        [OUTPUT + f"{gconfig}/model1/{mass}/iter/{ntrain}.txt" for gconfig, mass in gconfig_mass_list for ntrain in [model1_train_ntrainvectors]],
+
+
+rule model1_plotiterntrain:
+    localrule: True
+    params:
+        ntrainvectors = model1_train_ntrainvectors,
+        saveweightsstart = model1_train_saveweightsstart,
+        saveweightsevery = model1_train_saveweightsevery,
+    input:
+        LIB,
+        iter = OUTPUT + "{gconfig}/iter/{mass}.txt",
+        iter_model1 = [OUTPUT + f"{{gconfig}}/model1/{{mass}}/iter/{ntrain}.txt" for ntrain in [0] + list(range(model1_train_saveweightsstart, model1_train_ntrainvectors + 1, model1_train_saveweightsevery))],
+    output:
+        plot = PLOTS + f"{{gconfig}}/model1/iterntrain/{{mass}}.png",
+    script:
+        "model1/plot_iterntrain.py"
+
+
+rule model1_plotiterntrain_full:
+    input:
+        [PLOTS + f"{gconfig}/model1/iterntrain/{mass}.png" for gconfig, mass in gconfig_mass_list_critical],
+
+
+rule model1_calcevals:
+    resources:
+        cluster="hpd",
+    params:
+        **config,
+    input:
+        LIB,
+        multigrid_setup = OUTPUT + "{gconfig}/multigrid/{mass}/setup",
+        model_weights = OUTPUT + "{gconfig}/model1{model1inv}/{mass}/weights/{ntrain}",
+    output:
+        evals_model1 = OUTPUT + "{gconfig}/model1{model1inv}/{mass}/evals/{ntrain}.txt",
+    script:
+        "model1/calculate_evals.py"
+
+
+rule model1_calcevals_full:
+    input:
+        [OUTPUT + f"{gconfig}/model1/{mass}/evals/{ntrain}.txt" for gconfig, mass in gconfig_mass_list_critical for ntrain in [model1_train_ntrainvectors] if dimension == "4c8" and model1_evals],
+
+
+rule model1_plotevals:
+    localrule: True
+    input:
+        LIB,
+        evals = OUTPUT + "{gconfig}/evals/{mass}.txt",
+        evals_model1 = OUTPUT + "{gconfig}/model1{model1inv}/{mass}/evals/{ntrain}.txt",
+    output:
+        plot = PLOTS + "{gconfig}/evals/model1{model1inv}/{mass}_{ntrain}.png",
+    script:
+        "model1/plot_evals.py"
+
+
+rule model1_plotevals_full:
+    input:
+        [PLOTS + f"{gconfig}/evals/model1/{mass}_{ntrain}.png" for gconfig, mass in gconfig_mass_list_critical for ntrain in [model1_train_ntrainvectors] if dimension == "4c8" and model1_evals],
+
+
+rule model1_full:
+    input:
+        rules.model1_plotcost_full.input,
+        rules.model1_calciter_full.input,
+        rules.model1_plotiterntrain_full.input,
+        rules.model1_calcevals_full.input,
+        rules.model1_plotevals_full.input,
+
+
+
+
+
+
+
+
+
+
+################################ full ################################
+rule full:
+    input:
+        rules.noprec_full.input,
+	    rules.ptc1h1l_full.input,
+        rules.ptc1hxl_full.input,
+        rules.mg_full.input,
+        rules.smoother_full.input,
+        rules.clptc_full.input,
+        rules.model1_full.input,

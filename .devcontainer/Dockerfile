@@ -19,6 +19,10 @@ RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     pkg-config \
+    texlive-latex-base \
+    texlive-xetex \
+    dvipng \
+    cm-super \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # set fish as default shell for gpt user

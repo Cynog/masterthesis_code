@@ -52,4 +52,4 @@ with all available cores and one job at a time. DIM is either 4c8 or 8c16 for th
 
 ## Acknowledgements
 
-According the implementation accompanying my master's thesis, my gratitude belongs to @daknuett and @simon-pfahler. They supported me throughout the whole process, @daknuett provided me with code in the beginning to get me started and both of them worked together to create the [qcd_ml](https://github.com/daknuett/qcd_ml) library. It is well documented and nice to use. Modifying the code to work for the 5-dimensional Möbius Domain-wall operator was straightforward.
+According the implementation accompanying my master's thesis, my gratitude belongs to [@daknuett](https://github.com/daknuett) and [@simon-pfahler](https://github.com/simon-pfahler). They supported me throughout the whole process, @daknuett provided me with code in the beginning to get me started and both of them worked together to create the [qcd_ml](https://github.com/daknuett/qcd_ml) library. It is well documented and nice to use. Modifying the code to work for the 5-dimensional Möbius Domain-wall operator was straightforward.

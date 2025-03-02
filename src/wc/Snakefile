@@ -792,7 +792,7 @@ rule model1_full:
 rule full:
     input:
         rules.noprec_full.input,
-	    rules.ptc1h1l_full.input,
+	rules.ptc1h1l_full.input,
         rules.ptc1hxl_full.input,
         rules.mg_full.input,
         rules.smoother_full.input,

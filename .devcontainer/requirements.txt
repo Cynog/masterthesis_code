@@ -8,3 +8,4 @@ autopep8
 tqdm
 snakemake
 pulp==2.7.0
+pytest

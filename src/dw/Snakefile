@@ -39,12 +39,13 @@ if dimension == "8c16":
     gconfig_mass_list = [(c, f"{m:.6f}") for c in ["8c16_1200.cfg", "8c16_2200.cfg"] for m in [0.050, 0.080, 0.100, 0.200, 0.300]]
     gconfig_mass_list_ptc = [(c, f"{m:.6f}") for c in ["8c16_1200.cfg", "8c16_2200.cfg"] for m in [0.080]]
     pv_gconfig_mass_list = [(c, f"{m:.6f}") for c in ["8c16_1200.cfg", "8c16_2200.cfg"] for m in np.logspace(np.log10(7e-4), np.log10(3e-1), 10)]
-    pv_gconfig_mass_list_ptc = [(c, f"{m:.6f}") for c in ["8c16_1200.cfg", "8c16_2200.cfg"] for m in [7e-4, 0.080]]
+    pv_gconfig_mass_list_ptc = [(c, f"{m:.6f}") for c in ["8c16_1200.cfg", "8c16_2200.cfg"] for m in [7e-4]]
     Ls = "8"
     n_calciter = 3
     noprec_evals = True
     ptc_costf = ["", "inv"]
-    ptc_n_layers = ["1", "2", "4", "8"]#, "16"]
+    ptc_n_layers = ["1", "2", "4", "8"]
+    ptc_evals = True
     ptc_ptctype = ["", "s"]
 elif dimension == "4c4":
     config['mobius_p']['M5'] = 1.8
@@ -110,22 +111,21 @@ rule calcevals:
 
 rule calcevals_full:
     input:
-        [OUTPUT + f"{gconfig}_{Ls}/evals/{mass}.txt" for gconfig, mass in gconfig_mass_list if dimension == "4c4" and noprec_evals == True],
+        [OUTPUT + f"{gconfig}_{Ls}/evals/{mass}.txt" for gconfig, mass in gconfig_mass_list_ptc if noprec_evals],
 
 
 rule pv_calcevals_full:
     input:
-        [OUTPUT + f"pv_{gconfig}_{Ls}/evals/{mass}.txt" for gconfig, mass in pv_gconfig_mass_list if dimension == "4c4" and noprec_evals == True],
+        [OUTPUT + f"pv_{gconfig}_{Ls}/evals/{mass}.txt" for gconfig, mass in pv_gconfig_mass_list_ptc if dimension == "4c4" and noprec_evals],
 
 
-rule approxevals:
+rule approxevalslow:
     resources:
         cluster="hpd",
     params:
         **config,
-        n_evals = 200,
-        tol = 1e-2,
-        maxiter = 1000,
+        n_evals = 100,
+        tol = 1e-3,
         solver_kwargs = {"eps": 1e-10, "maxiter": 1000},
         tol_op = 1e-3,
     input:
@@ -133,17 +133,12 @@ rule approxevals:
     output:
         evals = OUTPUT + "{pv}{gconfig}_{Ls}/evals_approx/{mass}.txt",
     script:
-        "noprec/approximate_evals.py"
+        "noprec/approximate_evalslow.py"
 
 
-rule approxevals_full:
+rule pv_approxevalslow_full:
     input:
-        [OUTPUT + f"{gconfig}_{Ls}/evals_approx/{mass}.txt" for gconfig, mass in gconfig_mass_list if dimension == "8c16" and noprec_evals == True],
-
-
-rule pv_approxevals_full:
-    input:
-        [OUTPUT + f"pv_{gconfig}_{Ls}/evals_approx/{mass}.txt" for gconfig, mass in pv_gconfig_mass_list if dimension == "8c16" and noprec_evals == True],
+        [OUTPUT + f"pv_{gconfig}_{Ls}/evals_approx/{mass}.txt" for gconfig, mass in pv_gconfig_mass_list_ptc if dimension == "8c16" and noprec_evals],
 
 
 rule plotevals:
@@ -159,21 +154,19 @@ rule plotevals:
 
 rule plotevals_full:
     input:
-        [PLOTS + f"{gconfig}_{Ls}/evals/noprec_{mass}.png" for gconfig, mass in gconfig_mass_list if dimension == "4c4" and noprec_evals == True],
-        [PLOTS + f"{gconfig}_{Ls}/evals_approx/noprec_{mass}.png" for gconfig, mass in gconfig_mass_list if dimension == "8c16" and noprec_evals == True],
+        [PLOTS + f"{gconfig}_{Ls}/evals/noprec_{mass}.png" for gconfig, mass in gconfig_mass_list_ptc if noprec_evals],
 
 
 rule pv_plotevals_full:
     input:
-        [PLOTS + f"pv_{gconfig}_{Ls}/evals/noprec_{mass}.png" for gconfig, mass in pv_gconfig_mass_list if dimension == "4c4" and noprec_evals == True],
-        [PLOTS + f"pv_{gconfig}_{Ls}/evals_approx/noprec_{mass}.png" for gconfig, mass in pv_gconfig_mass_list if dimension == "8c16" and noprec_evals == True],
+        [PLOTS + f"pv_{gconfig}_{Ls}/evals/noprec_{mass}.png" for gconfig, mass in pv_gconfig_mass_list_ptc if dimension == "4c4" and noprec_evals],
+        [PLOTS + f"pv_{gconfig}_{Ls}/evals_approx/noprec_{mass}.png" for gconfig, mass in pv_gconfig_mass_list_ptc if dimension == "8c16" and noprec_evals],
 
 
 rule noprec_full:
     input:
         rules.calciter_full.input,
         rules.calcevals_full.input,
-        rules.approxevals_full.input,
         rules.plotevals_full.input,
 
 
@@ -181,7 +174,7 @@ rule pv_noprec_full:
     input:
         rules.pv_calciter_full.input,
         rules.pv_calcevals_full.input,
-        rules.pv_approxevals_full.input,
+        rules.pv_approxevalslow_full.input,
         rules.pv_plotevals_full.input,
 
 
@@ -363,7 +356,7 @@ rule ptc1hxl_full:
         for costf in ptc_costf
         for n_layers in ptc_n_layers
         for ntrain in [get_params_ptc1hxl(n_layers, costf)['ntrainvectors']]
-        if dimension == "4c4" and ptc_evals == True],
+        if ptc_evals],
 
 
 rule pv_ptc1hxl_full:
@@ -383,7 +376,7 @@ rule pv_ptc1hxl_full:
         for costf in ptc_costf
         for n_layers in ptc_n_layers
         for ntrain in [get_params_ptc1hxl(n_layers, costf)['ntrainvectors']]
-        if dimension == "4c4" and ptc_evals == True],
+        if dimension == "4c4" and ptc_evals],
 
 
 

@@ -27,15 +27,17 @@ if "s" in ptctype:
 
 # plot
 plt.scatter(0, 0, marker="+", c='black')
-#plt.scatter(evals.real, evals.imag, s=1, label='no prec')
+if gconfig.startswith("8c16"):
+    plt.scatter(evals.real, evals.imag, s=1, color="grey", label='noprec')
 if "" in ptctype:
-    plt.scatter(evals_ptc.real, evals_ptc.imag, s=1, alpha=0.5, label=f"ptc_1h{n_layers}l{costf}")
+    plt.scatter(evals_ptc.real, evals_ptc.imag, s=1, color="tab:blue", label=f"ptc1h{n_layers}l{costf}")
 if "s" in ptctype:
-    plt.scatter(evals_sptc.real, evals_sptc.imag, s=1, alpha=0.5, label=f"sptc_1h{n_layers}l{costf}")
+    plt.scatter(evals_sptc.real, evals_sptc.imag, s=1, color="tab:orange", label=f"sptc1h{n_layers}l{costf}")
 op = r"$M D_\textrm{dw}$"
 if pv:
     op = r"$M D_\textrm{pv}^\dag D_\textrm{dw}$"
 plt.title(f"eigenvalues of {op} for different $M$\n{pv}{gconfig}_{Ls} m={mass} ntrain={ntrain}")
+plt.axis("equal")
 plt.xlabel('re')
 plt.ylabel('im')
 plt.legend()

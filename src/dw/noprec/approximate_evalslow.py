@@ -20,7 +20,6 @@ gconfig_dir = snakemake.params.gconfig_dir
 gconfig = snakemake.wildcards.gconfig
 n_evals = snakemake.params.n_evals
 tol = snakemake.params.tol
-maxiter = snakemake.params.maxiter
 solver_kwargs = snakemake.params.solver_kwargs
 tol_op = snakemake.params.tol_op
 
@@ -79,5 +78,5 @@ print(norm)
 assert norm < tol_op
 
 # compute and save eigenvalues
-evals = scipy.sparse.linalg.eigs(D_scipy, k=n_evals, maxiter=maxiter, tol=tol, return_eigenvectors=False, sigma=0, OPinv=D_inv_scipy)
+evals = scipy.sparse.linalg.eigs(D_scipy, k=n_evals, tol=tol, return_eigenvectors=False, sigma=0, OPinv=D_inv_scipy)
 np.savetxt(snakemake.output.evals, evals)

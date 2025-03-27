@@ -4,10 +4,12 @@ cluster:
     --job-name={rule}
     --output=../../_logs/dw/%j-{rule}-{wildcards}.out
     --time={resources.time}
+    --mem={resources.mem}
     --export=ALL,CLUSTER={resources.cluster}
 default-resources:
   - cluster=hpd
   - time="4-00:00:00"
+  - mem="32G"
 latency-wait: 60
 jobs: 32
 keep-going: True

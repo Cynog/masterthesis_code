@@ -44,7 +44,7 @@ if dimension == "8c16":
     n_calciter = 3
     noprec_evals = True
     ptc_costf = ["", "inv"]
-    ptc_n_layers = ["1", "2", "4", "8"]
+    ptc_n_layers = ["1", "2", "4", "8", "16"]#, "32"]
     ptc_evals = True
     ptc_ptctype = ["", "s"]
 elif dimension == "4c4":
@@ -219,6 +219,8 @@ def get_params_ptc1hxl(n_layers, costf=""):
     if dimension == "8c16":
         if costf == "inv":
             params['adam_kwargs']['lr'] = 2e-3
+        if int(n_layers) > 8:
+            params['ntrainvectors'] = 2000
 
     # save weights every 10th of training vectors
     params['saveweightsstart'] = params['ntrainvectors'] // 10
@@ -235,6 +237,8 @@ ptc1hxl_train_paramnames = ["n_layers", "Wscale", "adam_kwargs", "ntrainvectors"
 for n_layers in ["1", "2", "4", "6", "8", "10", "16", "32"]:
     rule:
         name: f"ptc1h{n_layers}l_train",
+        resources:
+            mem="64G",
         params:
             **config,
             **{key: value for key, value in get_params_ptc1hxl(n_layers).items() if key in ptc1hxl_train_paramnames},
@@ -252,6 +256,8 @@ ptc1hxl_train_paramnames = ptc1hxl_train_paramnames + ["solver_kwargs"]
 for n_layers in ["1", "2", "4", "6", "8", "10", "16", "32"]:
     rule:
         name: f"ptc1h{n_layers}linv_train",
+        resources:
+            mem="64G",
         params:
             **config,
             **{key: value for key, value in get_params_ptc1hxl(n_layers, "inv").items() if key in ptc1hxl_train_paramnames},
